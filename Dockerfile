@@ -35,6 +35,9 @@ RUN apt-get update --yes && \
     echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
     locale-gen
 
+
+RUN git clone https://github.com/marty5499/webai-jupyter.git /home/${NB_USER}
+
 # Configure environment
 ENV CONDA_DIR=/opt/conda \
     SHELL=/bin/bash \
@@ -48,8 +51,12 @@ ENV PATH="${CONDA_DIR}/bin:${PATH}" \
     HOME="/home/${NB_USER}"
 
 # Copy a script that we will use to correct permissions after running certain commands
-COPY fix-permissions /usr/local/bin/fix-permissions
+RUN cp /home/${NB_USER}/fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
+
+# Copy local files as late as possible to avoid cache busting
+RUN cp /home/${NB_USER}/start.sh /home/${NB_USER}/start-notebook.sh /home/${NB_USER}/start-singleuser.sh /usr/local/bin/
+
 
 # Enable prompt color in the skeleton .bashrc before creating the default NB_USER
 # hadolint ignore=SC2016
@@ -130,17 +137,10 @@ RUN mamba install --quiet --yes \
 
 EXPOSE 8888
 
-# Configure container startup
-ENTRYPOINT ["tini", "-g", "--"]
-CMD ["start-notebook.sh"]
-
-# Copy local files as late as possible to avoid cache busting
-COPY start.sh start-notebook.sh start-singleuser.sh /usr/local/bin/
-# Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
-COPY jupyter_notebook_config.py /etc/jupyter/
-
 # Fix permissions on /etc/jupyter as root
 USER root
+RUN mkdir /etc/jupyter/
+RUN cp /home/${NB_USER}/jupyter_notebook_config.py /etc/jupyter/
 
 # Prepare upgrade to JupyterLab V3.0 #1205
 RUN sed -re "s/c.NotebookApp/c.ServerApp/g" \
@@ -148,6 +148,11 @@ RUN sed -re "s/c.NotebookApp/c.ServerApp/g" \
     fix-permissions /etc/jupyter/
 
 # Switch back to jovyan to avoid accidental container runs as root
-USER ${NB_UID}
+# USER ${NB_UID}
 
-WORKDIR "${HOME}"
+WORKDIR /home/${NB_USER}
+RUN jupyter nbextension install repl
+RUN jupyter nbextension enable repl/main
+#RUN rm -rf /home/${NB_USER}/*
+WORKDIR /tmp
+CMD ["start-notebook.sh", "--NotebookApp.token=''"]
