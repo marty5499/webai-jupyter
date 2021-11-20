@@ -23,6 +23,7 @@ USER root
 ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
+    vim \
     git \
     tini \
     wget \
