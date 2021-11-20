@@ -24,9 +24,16 @@ define([
         'icon': 'fa-usb',
         'handler': async function () {
           await repl.connectBoard();
-          usbBtn.style.backgroundColor='#aaffaa';
+          await repl.enterRAWREPL();
+          setTimeout(async function(){
+            await repl.sendCmd('from webai import *');
+            await repl.sendCmd('webai.init()');
+            await repl.sendCmd('webai.lcd.init()');
+            usbBtn.style.backgroundColor='#aaffaa';
+          },500);          
         }
       }, 'usb-connect', 'usbconnect'),
+      /*
       Jupyter.keyboard_manager.actions.register({
         'help': 'enter REPL',
         'icon': 'fa-cog',
@@ -40,6 +47,7 @@ define([
             },500);
         }
       }, 'usb-repl', 'usbrepl'),
+      */
       Jupyter.keyboard_manager.actions.register({
         'help': 'Run code',
         'icon': 'fa-play',
