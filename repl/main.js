@@ -84,6 +84,9 @@ define([
     var usbBtn = btns.find('button')[0];
     var runBtn = btns.find('button')[1];
     usbBtn.style.backgroundColor='#ffaaaa';
+    repl.ondisconnect = function(){
+      usbBtn.style.backgroundColor='#ffaaaa';
+    } 
   };
 
   var extension = {

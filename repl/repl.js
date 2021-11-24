@@ -38,6 +38,7 @@ class REPL {
     this.encoder = new TextEncoder();
     this.decoder = new TextDecoder();
     this.callback = function(){}
+    this.ondisconnect = function(){}
   }
 
   addListener(callback){
@@ -52,8 +53,8 @@ class REPL {
       await this.reader.cancel();
       await this.port.close();
     } else {
-      //console.log("connect..")
       this.port = await navigator.serial.requestPort({ filters: [filter] });
+      this.port.ondisconnect = this.ondisconnect;
     }
     await this.port.open({
       baudRate: 115200,
