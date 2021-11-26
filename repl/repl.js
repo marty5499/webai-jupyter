@@ -37,11 +37,11 @@ class REPL {
   constructor() {
     this.encoder = new TextEncoder();
     this.decoder = new TextDecoder();
-    this.callback = function(){}
-    this.ondisconnect = function(){}
+    this.callback = function () {}
+    this.ondisconnect = function () {}
   }
 
-  addListener(callback){
+  addListener(callback) {
     this.callback = callback;
   }
 
@@ -71,21 +71,23 @@ class REPL {
   }
 
   async readLoop(self) {
-    while (true) {
-      const { value, done } = await self.reader.read();
-      self.resp += self.decoder.decode(value);
-      self.callback(self.resp);
-      self.resp = "";
-      if (done) {
-        self.reader.releaseLock();
-        break;
+    try {
+      while (true) {
+        const { value, done } = await self.reader.read();
+        self.resp += self.decoder.decode(value);
+        self.callback(self.resp);
+        self.resp = "";
+        if (done) {
+          self.reader.releaseLock();
+          break;
+        }
       }
-    }
+    } catch(e){}
   }
-  
+
   async sendCmd(str) {
     await this.writer.write(Int8Array.from([0x01])); //start
-    await this.writer.write(this.encoder.encode(str+"\r\n"));
+    await this.writer.write(this.encoder.encode(str + "\r\n"));
     await this.writer.write(Int8Array.from([0x04])); //end
   }
 
@@ -99,7 +101,9 @@ class REPL {
   async enterRAWREPL() {
     //console.log("enterREPL...");
     await this.restart();
-    await this.writer.write(Int8Array.from([[0x03]]));
+    await this.writer.write(Int8Array.from([
+      [0x03]
+    ]));
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
