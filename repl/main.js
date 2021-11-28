@@ -35,38 +35,25 @@ define([
         'help': 'connect to Web:AI',
         'icon': 'fa-usb',
         'handler': async function () {
-          await repl.connectBoard();
+          await repl.usbConnect();
           var clearId = blink();
-          await repl.enterRAWREPL();
-          setTimeout(async function () {
-            var output = '';
-            repl.addListener(function (msg) {
-              output += msg;
-              if (output.indexOf('#repl start...#') >= 0) {
-                clearInterval(clearId);
-                setTimeout(function () {
-                  usbBtn.style.backgroundColor = '#aaffaa';
-                }, 300)
-              }
-            })
-            var cmd1 = "from webai import *";
-            var cmd2 = "webai.init()\nwebai.clear()\nwebai.lcd.init()";
-            var cmd3 = "webai.img = image.Image()"
-            var cmd4 = "webai.img.draw_rectangle(0,0,320,240, 0xffeaea, 1,fill=True)";
-            var cmd5 = "webai.lcd.display(webai.img)";
-            var cmd6 = "webai.draw_string(60,100,'REPL Ready...',scale=2,x_spacing=3)";
-            var cmd7 = "webai.img = None"
-            var cmd8 = "gc.collect()"
-            await repl.sendCmd(cmd1);
-            await repl.sendCmd(cmd2);
-            await repl.sendCmd(cmd3);
-            await repl.sendCmd(cmd4);
-            await repl.sendCmd(cmd5);
-            await repl.sendCmd(cmd6);
-            await repl.sendCmd(cmd7);
-            await repl.sendCmd(cmd8);
-            await repl.sendCmd("print('#repl start...#')");
-          }, 500);
+          await repl.enter();
+          var code = `
+from webai import *
+webai.init()
+webai.clear()
+webai.lcd.init()
+webai.img = image.Image()
+webai.img.draw_rectangle(0,0,320,240, 0xffeaea, 1,fill=True)
+webai.lcd.display(webai.img)
+webai.draw_string(60,100,'REPL Ready...',scale=2,x_spacing=3)
+webai.img = None
+gc.collect()
+print("OKOK")
+`;            
+          await repl.writeAssert(code,'OKOK');
+          clearInterval(clearId);
+          usbBtn.style.backgroundColor = '#aaffaa';
         }
       }, 'usb-connect', 'usbconnect'),
       /*
@@ -92,26 +79,15 @@ define([
           var idx = nb.get_anchor_index();
           var cell = nb.get_cell(idx);
           var code = cell.get_text();
-          var output = '';
-          var startMsg = 'raw REPL; CTRL-B to exit\r\n>OK';
-          var startFlag = false;
-          repl.addListener(function (msg) {
-            output += msg;
-            if (output.indexOf(startMsg) >= 0) {
-              output = output.replace(startMsg, '');
-              startFlag = true;
-            } else if (startFlag) {
-              output = output.replace('\u0004\u0004>', '');
-              cell.output_area.clear_output();
+          cell.output_area.clear_output();
+          await repl.write(code,function(output){
               output = output.replace('\n', '<br>');
               cell.output_area.append_output({
                 "output_type": "display_data",
                 "metadata": {}, // included to avoid warning
                 "data": { "text/html": output }
               });
-            }
-          })
-          await repl.sendCmd(code);
+          });
         }
       }, 'usb-run', 'usbrun'),
     ]);
