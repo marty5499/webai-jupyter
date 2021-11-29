@@ -9,11 +9,6 @@ define([
   "use strict";
   var repl = new REPL();
 
-  repl.addListener(function (msg) {
-    msg = msg.replace('\u0004\u0004>', '');
-    console.log(msg);
-  })
-
   var usbBtn, runBtn;
 
   function sleep(ms) {
@@ -32,13 +27,17 @@ define([
   var load_extension = function () {
     var btns = Jupyter.toolbar.add_buttons_group([
       Jupyter.keyboard_manager.actions.register({
-        'help': 'connect to Web:AI',
-        'icon': 'fa-usb',
-        'handler': async function () {
-          await repl.usbConnect();
-          var clearId = blink();
-          await repl.enter();
-          var code = `
+          'help': 'connect to Web:AI',
+          'icon': 'fa-usb',
+          'handler': async function () {
+            await repl.usbConnect();
+            repl.port.ondisconnect = function () {
+              usbBtn.style.backgroundColor = '#ffaaaa';
+              this.port = null;
+            }            
+            var clearId = blink();
+            await repl.enter();
+            await repl.write(`
 from webai import *
 webai.init()
 webai.clear()
@@ -49,13 +48,15 @@ webai.lcd.display(webai.img)
 webai.draw_string(60,100,'REPL Ready...',scale=2,x_spacing=3)
 webai.img = None
 gc.collect()
-print("OKOK")
-`;            
-          await repl.writeAssert(code,'OKOK');
-          clearInterval(clearId);
-          usbBtn.style.backgroundColor = '#aaffaa';
-        }
-      }, 'usb-connect', 'usbconnect'),
+`);
+            clearInterval(clearId);
+            setTimeout(function () {
+              usbBtn.style.backgroundColor = '#aaffaa';
+            }, 300)
+          }
+        },
+        'usb-connect',
+        'usbconnect'),
       /*
       Jupyter.keyboard_manager.actions.register({
         'help': 'enter REPL',
@@ -79,14 +80,15 @@ print("OKOK")
           var idx = nb.get_anchor_index();
           var cell = nb.get_cell(idx);
           var code = cell.get_text();
+          var output = '';
           cell.output_area.clear_output();
-          await repl.write(code,function(output){
-              output = output.replace('\n', '<br>');
-              cell.output_area.append_output({
-                "output_type": "display_data",
-                "metadata": {}, // included to avoid warning
-                "data": { "text/html": output }
-              });
+          await repl.write(code, function (value) {
+            cell.output_area.append_output({
+              "output_type": "display_data",
+              "metadata": {}, // included to avoid warning
+              "data": { "text/html": (value + "<br>") }
+            });
+            return { value: "", done: false }
           });
         }
       }, 'usb-run', 'usbrun'),
@@ -95,9 +97,6 @@ print("OKOK")
     usbBtn = btns.find('button')[0];
     runBtn = btns.find('button')[1];
     usbBtn.style.backgroundColor = '#ffaaaa';
-    repl.ondisconnect = function () {
-      usbBtn.style.backgroundColor = '#ffaaaa';
-    }
   };
 
   var extension = {
