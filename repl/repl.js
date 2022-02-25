@@ -1,3 +1,18 @@
+const generateESP32UploadCode = (file, pythonCode) => {
+  code = `
+pycode = """
+${pythonCode}
+"""
+import machine
+# write python code
+with open('${file}', 'w') as f:
+    f.write(pycode)
+with open ('${file}', 'r') as f:
+    content = f.read()
+`;
+  return code;
+};
+
 const generateUploadCode = (type, file, pythonCode) => {
   code = `
 pycode = """
@@ -25,21 +40,6 @@ cfg.put('cmd', deployCmd)
   return code;
 };
 
-const snapshotCode = `
-from webai import *
-from time import sleep
-repl = UART.repl_uart()
-img = webai.snapshot()
-webai.show(img=img)
-jpg = img.compress(80)
-img = None
-jpg = jpg.to_bytes()
-repl.write("JPGSize:")
-repl.write(str(len(jpg)))
-repl.write('\\r\\n')
-sleep(0.01)
-repl.write(jpg)
-`
 
 class DataTransformer {
   constructor() {
@@ -75,7 +75,6 @@ class DataTransformer {
         var rtnByteArray = new Uint8Array([...this.byteArray.slice(0, this.readBytes)]);
         this.byteArray = new Uint8Array(
           [this.byteArray.slice(this.readBytes, byteArrayLength - this.readBytes)]);
-        //console.log("chunk:", rtnByteArray);
         controller.enqueue(rtnByteArray);
       }
     }
@@ -99,9 +98,10 @@ class REPL {
 
   async usbConnect() {
     var self = this;
+    this.running = false;
     const filter = { usbVendorId: 6790 };
     if (self.port == undefined) {
-      self.port = await navigator.serial.requestPort({ filters: [filter] });
+      self.port = await navigator.serial.requestPort({});
       await this.port.open({ baudRate: 115200, dateBits: 8, stopBits: 1, });
       this.writer = this.port.writable.getWriter();
       this.stream = new DataTransformer();
@@ -114,11 +114,22 @@ class REPL {
     }
   }
 
-  async restart() {
-    await this.port.setSignals({ dataTerminalReady: false });
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await this.port.setSignals({ dataTerminalReady: true });
-    await new Promise((resolve) => setTimeout(resolve, 1700));
+  async restart(chip) {
+    try {
+      await this.port.setSignals({ dataTerminalReady: false });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await this.port.setSignals({ dataTerminalReady: true });
+      if (chip == 'esp32') {
+        console.log("esp32 restart")
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 1700));
+      }
+    } catch (e) {
+      this.port = undefined;
+      await this.usbConnect();
+      await this.restart(chip);
+    }
   }
 
   async enter() {
@@ -138,44 +149,80 @@ class REPL {
   }
 
   async write(code, cb) {
+    if (this.running) {
+      if(cb!=null)
+      cb('running...');
+      return "";
+    }
+    this.running = true;
     var boundry = "===" + Math.random() + "==";
     await this.writer.write(Int8Array.from([0x01 /*RAW paste mode*/ ]));
-    code = "\r\nprint('" + boundry + "')\r\n" + code;
-    code = code + "\r\nprint('" + boundry + "')\r\n";
-    await this.writer.write(this.encoder.encode(code));
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await this.writer.write(this.encoder.encode("print('" + boundry + "')\r\n"));
+    var codes = code.split('\n');
+    for (var i = 0; i < codes.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await this.writer.write(this.encoder.encode(codes[i] + "\n"));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await this.writer.write(this.encoder.encode("print('" + boundry + "')\r\n"));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
     await this.writer.write(Int8Array.from([0x04 /*exit*/ ]));
     var startBoundry = false;
-    var rtnObj;
+    var rtnObj = "" + code.length;
     while (true) {
       var { value, done } = await this.reader.read();
       if (this.stream.readLine) {
-        if (value == ">OK" + boundry) {
-          startBoundry = true;
+        if (done) {
+          //console.log("end:",value);
+          this.running = false;
+          return rtnObj;
+        } else if (value.indexOf(">raw REPL; CTRL-B to exit") > 0) {
           continue;
-        }
-        if (value == boundry) {
+        } else if (value == ">OK" + boundry) {
+          startBoundry = true;
+          //console.log("startBoundry...",value);
+          continue;
+        } else if (value == boundry) {
+          //console.log("endBoundry...",value);
+          this.running = false;
           return rtnObj;
         } else if (startBoundry && cb != null) {
+          //console.log("output...",value);
           var { value, done } = await cb(value);
-          //console.log("val:", value);
           if (done) return value;
         }
-      }
-      if (this.stream.readByteArray) {
+      } else if (this.stream.readByteArray) {
         var { value, done } = await cb(value);
-        if (done) return value;
+        if (done) {
+          this.running = false;
+          return value;
+        }
       }
     }
   }
 
   async uploadFile(type, filename, pythonCode) {
-    pythonCode = generateUploadCode(type /*std|mini*/ , filename, pythonCode);
-    pythonCode = pythonCode.replace("\\", "\\\\");
-    return await this.write(pythonCode, function (value) {
-      if (value.substring(0, 4) == 'save') {
-        return { 'value': value, 'done': true };
-      }
-    });
+    if (type == 'esp32') {
+      pythonCode = generateESP32UploadCode(filename, pythonCode);
+      pythonCode = pythonCode.replace("\\", "\\\\");
+      var rtn = await this.write(pythonCode, function (value) {
+        if (value.substring(0, 4) == 'save') {
+          return { 'value': value, 'done': true };
+        }
+      });
+      return rtn;
+    } else {
+      pythonCode = generateUploadCode(type /*std|mini*/ , filename, pythonCode);
+      pythonCode = pythonCode.replace("\\", "\\\\");
+      return await this.write(pythonCode, function (value) {
+        if (value.substring(0, 4) == 'save') {
+          return { 'value': value, 'done': true };
+        }
+      });
+    }
   }
 
   async setWiFi(pythonCode, ssid, pwd) {
